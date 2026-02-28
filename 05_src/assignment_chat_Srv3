@@ -1,0 +1,148 @@
+from dotenv import load_dotenv      
+import json
+import requests
+import os
+from openai import OpenAI
+from langchain.chat_models import init_chat_model
+from langchain.tools import tool
+from bs4 import BeautifulSoup
+
+open_ai_model = 'gpt-4o-mini'
+
+load_dotenv(".env")
+load_dotenv(".secrets")
+
+model = init_chat_model(
+    f"openai:{open_ai_model}",
+    temperature=0.7,
+    base_url='https://k7uffyg03f.execute-api.us-east-1.amazonaws.com/prod/openai/v1',
+    api_key='any value',
+    default_headers={"x-api-key": os.getenv('API_GATEWAY_KEY')} 
+)
+
+
+@tool
+def get_latest_news(n: int = 1):
+    """Returns n latestnews headlines."""
+    apiKey = os.getenv('NEWS_API')
+    url = "https://newsapi.org/v2/top-headlines" 
+    params = { "sources": "bbc-news",
+               "apiKey": apiKey } 
+    response = requests.get(url, params=params) 
+        
+    if response.status_code == 200:
+        data = response.json()
+        articles = data.get("articles", [])[:n]
+        headlines = [article["title"] for article in articles]
+        return headlines
+    else:
+        return f"Error fetching news: {response.status_code}"
+
+    
+  
+
+tools = [get_latest_news]
+tools_by_name = {t.name: t for t in tools}
+model_with_tools = model.bind_tools(tools)
+
+from langchain_core.messages import AnyMessage
+from typing_extensions import TypedDict, Annotated
+import operator
+
+
+class MessagesState(TypedDict):
+    messages: Annotated[list[AnyMessage], operator.add] # new messages are appended rather than replacing
+    llm_calls: int
+
+from langchain_core.messages import SystemMessage
+
+
+def llm_call(state: dict):
+    """LLM decides whether to call a tool or not"""
+    return {
+        "messages": [
+            model_with_tools.invoke(
+                [
+                    SystemMessage(
+                        content="You are a helpful assistant tasked with giving the n number facts."
+                    )
+                ]
+                + state["messages"]
+            )
+        ],
+        "llm_calls": state.get('llm_calls', 0) + 1
+    }
+
+from langchain_core.messages import ToolMessage
+
+
+def tool_node(state: dict):
+    """Performs the tool call"""
+
+    result = []
+    for tool_call in state["messages"][-1].tool_calls:
+        tool = tools_by_name[tool_call["name"]]
+        observation = tool.invoke(tool_call["args"])
+
+        # Convert tool output into valid OpenAI message format
+        if isinstance(observation, list):
+            text_output = "\n".join(str(item) for item in observation)
+        else:
+            text_output = str(observation)
+
+        result.append(
+            ToolMessage(
+                content=[{"type": "text", "text": text_output}],
+                tool_call_id=tool_call["id"]
+            )
+        )
+
+    return {"messages": result}
+
+
+from typing import Literal
+from langgraph.graph import StateGraph, START, END
+
+
+def should_continue(state: MessagesState) -> Literal["tool_node", END]:
+    """Decide if we should continue the loop or stop based upon whether the LLM made a tool call"""
+
+    messages = state["messages"]
+    last_message = messages[-1]
+
+    # If the LLM makes a tool call, then perform an action
+    if last_message.tool_calls:
+        return "tool_node"
+
+    # Otherwise, we stop (reply to the user)
+    return END
+
+# Build workflow
+agent_builder = StateGraph(MessagesState)
+
+# Add nodes
+agent_builder.add_node("llm_call", llm_call)
+agent_builder.add_node("tool_node", tool_node)
+
+# Add edges to connect nodes
+agent_builder.add_edge(START, "llm_call")
+agent_builder.add_conditional_edges(
+    "llm_call",
+    should_continue,
+    ["tool_node", END]
+)
+agent_builder.add_edge("tool_node", "llm_call")
+
+# Compile the agent
+agent = agent_builder.compile()
+
+# Show the agent
+from IPython.display import Image, display
+display(Image(agent.get_graph(xray=True).draw_mermaid_png()))
+
+# Invoke
+from langchain_core.messages import HumanMessage
+messages = [HumanMessage(content="Tell me 5 latest news headlines")]
+messages = agent.invoke({"messages": messages})
+for m in messages["messages"]:
+    m.pretty_print()
