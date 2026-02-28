@@ -1,5 +1,5 @@
 import gradio as gr
-from assignment_chat.main import ipstack_chat
+from assignment_chat_Srv1.main import ipstack_chat
 
 from dotenv import load_dotenv
 from typing import Optional

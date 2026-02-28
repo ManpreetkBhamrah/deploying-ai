@@ -1,6 +1,6 @@
 
 from dotenv import load_dotenv
-from assignment_chat.prompts import return_instructions_root
+from assignment_chat_Srv1.prompts import return_instructions_root
 import json
 import requests
 import os
