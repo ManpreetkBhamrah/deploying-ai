@@ -1,21 +1,34 @@
+from assignment_chat.main import get_graph
+from langchain_core.messages import SystemMessage , HumanMessage
 import gradio as gr
-from assignment_chat.main import ipstack_chat
-
 from dotenv import load_dotenv
-from typing import Optional
-import os
+import os   
 
-from utils.logger import get_logger
+llm = get_graph()
 
-_logs = get_logger(__name__)
+load_dotenv(".env")
+load_dotenv(".secrets")
 
-load_dotenv('.secrets')
+def assignment_chat(message : str, history : list[dict])->str:
+    langchain_messages = []
+    n = 0
+    for msg in history:
+        if msg["role"] == "user":
+            langchain_messages.append(HumanMessage(content=msg["content"]))
+        elif msg["role"] == "assistant":
+            langchain_messages.append(SystemMessage(content=msg["content"]))
+        n += 1
+    langchain_messages.append(HumanMessage(content=message))
+
+    state = {"messages": langchain_messages , "llm_calls": n}
+
+    response = llm.invoke(state)
+    return response["messages"][len(response["messages"]) - 1].content
 
 chat = gr.ChatInterface(
-    fn=ipstack_chat,    # need to be replaced
-    type="messages"
+    fn=assignment_chat,
+    type="messages",
+    title="Assignment Chat",
 )
-
 if __name__ == "__main__":
-    _logs.info('Starting IPStack Chat App...')    # need to be replaced
-    chat.launch()
+    chat.launch()   
