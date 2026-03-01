@@ -7,6 +7,7 @@ load_dotenv('.secrets')
 
 chat = gr.ChatInterface(
     fn=music_chat,    
-    type="messages"
+    type="messages",
+    title="Assignment Chat: Service: Thoughts for Music and Dance",
 )
 chat.launch()

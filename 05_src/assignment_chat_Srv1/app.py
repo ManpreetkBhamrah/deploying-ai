@@ -11,7 +11,8 @@ load_dotenv('.secrets')
 
 chat = gr.ChatInterface(
     fn=ipstack_chat,    # need to be replaced
-    type="messages"
+    type="messages",
+    title="Assignment Chat: Service: Know your Location based on IP",
 )
 
 
